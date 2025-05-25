@@ -95,7 +95,9 @@ class Policy(nn.Module):
         x = x.view(-1, self.state_dim)  # Flatten input if needed
         x = torch.relu(self.fc1(x))
         logits = self.fc2(x)
-        return torch.softmax(logits, dim=-1)  # Softmax over last dimension for action probabilities
+        return torch.softmax(
+            logits, dim=-1
+        )  # Softmax over last dimension for action probabilities
 
 
 class REINFORCEAgent(AbstractAgent):
@@ -169,7 +171,9 @@ class REINFORCEAgent(AbstractAgent):
         # TODO: Pass state through the policy network to get action probabilities
         # If evaluate is True, return the action with highest probability
         # Otherwise, sample from the action distribution and return the log-probability as a key in the dictionary (Hint: use torch.distributions.Categorical)
-        state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)  # Add batch dimension
+        state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(
+            0
+        )  # Add batch dimension
         action_probs = self.policy(state_tensor)
         if evaluate:
             action = torch.argmax(action_probs, dim=-1).item()
