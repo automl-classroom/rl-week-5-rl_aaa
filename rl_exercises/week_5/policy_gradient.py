@@ -70,6 +70,8 @@ class Policy(nn.Module):
         self.n_actions = action_space.n
 
         # TODO: Define two linear layers: self.fc1 and self.fc2
+        self.fc1 = nn.Linear(self.state_dim, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, self.n_actions)
         # self.fc1 should map from self.state_dim to hidden_size
         # self.fc2 should map from hidden_size to self.n_actions
 
@@ -90,7 +92,10 @@ class Policy(nn.Module):
         # TODO: Apply fc1 followed by ReLU (Flatten input if needed)
         # TODO: Apply fc2 to get logits
         # TODO: Return softmax over logits along the last dimension
-        pass
+        x = x.view(-1, self.state_dim)  # Flatten input if needed
+        x = torch.relu(self.fc1(x))
+        logits = self.fc2(x)
+        return torch.softmax(logits, dim=-1)  # Softmax over last dimension for action probabilities
 
 
 class REINFORCEAgent(AbstractAgent):
@@ -164,7 +169,18 @@ class REINFORCEAgent(AbstractAgent):
         # TODO: Pass state through the policy network to get action probabilities
         # If evaluate is True, return the action with highest probability
         # Otherwise, sample from the action distribution and return the log-probability as a key in the dictionary (Hint: use torch.distributions.Categorical)
-        return 0, {}  # Placeholder return value
+        state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)  # Add batch dimension
+        action_probs = self.policy(state_tensor)
+        if evaluate:
+            action = torch.argmax(action_probs, dim=-1).item()
+        else:
+            dist = torch.distributions.Categorical(action_probs)
+            action = dist.sample().item()
+            log_prob = dist.log_prob(torch.tensor(action))
+            info_out = {"log_prob": log_prob}
+            return action, info_out
+        info_out = {}
+        return action, info_out
 
     def compute_returns(self, rewards: List[float]) -> torch.Tensor:
         """
@@ -186,7 +202,12 @@ class REINFORCEAgent(AbstractAgent):
         #       - Update R = r + gamma * R
         #       - Insert R at the beginning of the returns list
         # TODO: Convert the list of returns to a torch.Tensor and return
-        pass
+        returns = []
+        R = 0.0
+        for r in reversed(rewards):
+            R = r + self.gamma * R
+            returns.insert(0, R)
+        return torch.tensor(returns, dtype=torch.float32)
 
     def update_agent(
         self,
@@ -216,8 +237,10 @@ class REINFORCEAgent(AbstractAgent):
 
         # TODO: Normalize returns with mean and standard deviation,
         # and add 1e-8 to the denominator to avoid division by zero
-        norm_returns = returns_t
-
+        returns_t = returns_t.clone().detach().float()
+        mean = returns_t.mean()
+        std = returns_t.std(unbiased=False)
+        norm_returns = (returns_t - mean) / (std + 1e-8)
         lp_tensor = torch.stack(log_probs)
         loss = -torch.sum(lp_tensor * norm_returns)
 
@@ -280,11 +303,29 @@ class REINFORCEAgent(AbstractAgent):
         self.policy.eval()
         returns: List[float] = []  # noqa: F841
         # TODO: rollout num_episodes in eval_env and aggregate undiscounted returns across episodes
+        for _ in range(num_episodes):
+            state, _ = eval_env.reset()
+            done = False
+            episode_return = 0.0
+
+            while not done:
+                action, info = self.predict_action(state, evaluate=True)
+                next_state, reward, term, trunc, _ = eval_env.step(action)
+                done = term or trunc
+                episode_return += reward
+                state = next_state
+
+            returns.append(episode_return)
 
         self.policy.train()  # Set back to training mode
 
         # TODO: Return the mean and std of the returns across episodes
-        return 0.0, 0.0
+        if returns:
+            mean_return = np.mean(returns)
+            std_return = np.std(returns)
+            return mean_return, std_return
+        else:
+            print("No returns collected during evaluation.")
 
     def train(
         self,
